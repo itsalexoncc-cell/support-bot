@@ -786,7 +786,7 @@
           t = new Date(),
           tk = t.getFullYear() + '-' + pad(t.getMonth() + 1) + '-' + pad(t.getDate()),
           html = '', i;
-      html += '<div class="stitle">Расписание</div><div class="cal-h"><button class="ib" data-m="-1" aria-label="Назад">' + ico('back') + '</button>' +
+      html += '<div class="stitle" style="text-align:center">Расписание</div><div class="cal-h"><button class="ib" data-m="-1" aria-label="Назад">' + ico('back') + '</button>' +
         '<div class="cal-t">' + first.toLocaleDateString('ru-RU', {month: 'long', year: 'numeric'}) + '</div>' +
         '<button class="ib" data-m="1" aria-label="Вперёд">' + ico('next') + '</button></div><div class="cal-g">';
       ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].forEach(function(w) { html += '<div class="cal-w">' + w + '</div>'; });
