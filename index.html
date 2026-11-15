@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
   <title>Мини-приложение</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
@@ -28,7 +28,7 @@
       }
     }
     * { box-sizing: border-box; margin: 0; -webkit-tap-highlight-color: transparent; }
-    html { background: var(--page); height: 100%; }
+    html { background: var(--page); height: 100%; touch-action: manipulation; -webkit-text-size-adjust: 100%; }
     body {
       background: var(--page);
       color: var(--tx);
@@ -77,14 +77,14 @@
     h1 { font-size: 23px; font-weight: 600; margin-top: 10px; text-align: center; letter-spacing: -.01em; }
     .subl { color: var(--hint); font-size: 14px; margin-top: 2px; text-align: center; }
 
-    .acts { display: flex; gap: 28px; }
+    .acts { display: flex; gap: 10px; }
     .acts button, .acts span.off {
       border: 0; background: none; padding: 0;
       display: flex; flex-direction: column; align-items: center; gap: 6px;
-      color: var(--tx); font-size: 13px;
+      color: var(--tx); font-size: 12px;
     }
     .acts .b {
-      width: 76px; height: 52px; border-radius: 26px;
+      width: 62px; height: 52px; border-radius: 26px;
       background: var(--glass); color: var(--ac);
       display: flex; align-items: center; justify-content: center; transition: transform .12s;
     }
@@ -175,11 +175,47 @@
     }
     .btn:active { transform: scale(.98); }
     .btn.ghost { background: var(--glass); color: var(--ac); }
+
+    /* График */
+    .cal-h { display: flex; align-items: center; justify-content: space-between; }
+    .cal-t { font-weight: 700; font-size: 17px; text-transform: capitalize; }
+    .cal-g { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+    .cal-w { color: var(--hint); font-size: 12px; text-align: center; padding: 2px 0; }
+    .cal-d { aspect-ratio: 1; border: 0; border-radius: 50%; background: var(--glass); color: var(--tx); font: inherit; font-size: 15px; display: flex; align-items: center; justify-content: center; padding: 0; }
+    .cal-d.e { visibility: hidden; }
+    .cal-d.on { background: var(--ac); color: var(--act); font-weight: 600; }
+    .cal-d.sick { background: #e5484d; color: #fff; font-weight: 600; }
+    .cal-d.vac { background: #34c759; color: #fff; font-weight: 600; }
+    .cal-modes { display: flex; gap: 6px; }
+    .cal-mode { flex: 1; border: 0; border-radius: 999px; padding: 9px 4px; background: var(--glass); color: var(--tx); font: inherit; font-size: 13px; font-weight: 500; display: flex; align-items: center; justify-content: center; gap: 6px; }
+    .cal-mode.sel { background: var(--card); box-shadow: 0 3px 10px rgba(0,0,0,.14); font-weight: 600; }
+    .cal-mode i, .cal-leg i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; }
+    .k-work { background: var(--ac); } .k-sick { background: #e5484d; } .k-vac { background: #34c759; }
+    .cal-d.today { box-shadow: inset 0 0 0 2px var(--ac); }
+    .cal-d.ro { pointer-events: none; }
+    .cal-leg { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; color: var(--hint); font-size: 13px; padding: 2px 6px 0; }
+    .cal-leg span { display: flex; align-items: center; gap: 6px; }
+    .cal-note { color: var(--hint); font-size: 12px; padding: 0 6px; }
+    .stitle.cnt { margin-left: auto; color: var(--hint); white-space: nowrap; }
+    #cal { display: flex; flex-direction: column; gap: 14px; }
+    input[type=file] { font-size: 14px; }
+
+    /* Окно QR: размер как у системного окна iOS */
+    .dlg { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: flex-start; justify-content: center; z-index: 50; padding-top: calc(env(safe-area-inset-top, 0px) + 28px); }
+    .dlg-box { width: 270px; max-width: calc(100% - 48px); background: var(--card); border-radius: 14px; overflow: hidden; text-align: center; box-shadow: 0 10px 40px rgba(0,0,0,.25); }
+    .dlg-t { font-weight: 600; font-size: 17px; padding: 18px 16px 12px; }
+    .dlg-img { display: block; width: 200px; height: 200px; margin: 0 auto 16px; border-radius: 8px; object-fit: contain; background: #fff; }
+    .dlg-b { display: block; width: 100%; border: 0; border-top: .5px solid rgba(128,128,128,.35); background: none; color: var(--ac); font: inherit; font-size: 17px; padding: 13px; }
   </style>
 </head>
 <body>
   <div id="app"></div>
   <script>
+    // Запрет зума (двойной тап и щипок)
+    ['gesturestart', 'gesturechange', 'gestureend', 'dblclick'].forEach(function(n) {
+      document.addEventListener(n, function(e) { e.preventDefault(); });
+    });
+
     // Адрес вашего воркера на Cloudflare (без слэша в конце)
     var API_BASE = 'https://support-bot.itsalexoncc.workers.dev';
 
@@ -197,7 +233,8 @@
       colleagues: '/api/colleagues',
       pins: '/api/pins',
       notifications: '/api/content/notifications',
-      avlog: '/api/avatars/log'
+      avlog: '/api/avatars/log',
+      schedule: '/api/schedule'
     };
 
     function esc(s) {
@@ -299,6 +336,9 @@
       mail: '<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3.5 7l8.5 6 8.5-6"/>',
       edit: '<path d="M4 20l1-4L16 5l3 3L8 19l-4 1z"/><path d="M14 7l3 3"/>',
       back: '<path d="M15 18l-6-6 6-6"/>',
+      next: '<path d="M9 18l6-6-6-6"/>',
+      cal: '<rect x="4" y="5.5" width="16" height="14.5" rx="2.5"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/>',
+      qr: '<rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><path d="M14 14h3v3M20 14v1M14 20h2M20 18v2h-2"/>',
       close: '<path d="M6 6l12 12M18 6L6 18"/>',
       eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/>',
       eyeoff: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/><path d="M4 4l16 16"/>',
@@ -309,7 +349,7 @@
     };
     function ico(k) { return '<svg class="i" viewBox="0 0 24 24">' + IC[k] + '</svg>'; }
 
-    var TABS = [['home', 'Главная'], ['pins', 'Закреп'], ['colleagues', 'Друзья'], ['notifications', 'Уведомления']];
+    var TABS = [['home', 'Главная'], ['pins', 'Закреп'], ['colleagues', 'Люди'], ['notifications', 'Уведомления']];
 
     function copyText(v) {
       var ok = false;
@@ -358,7 +398,7 @@
               '<h1>' + esc(me.bot) + '</h1>' +
               '<div class="subl">Мой круг общения</div>' +
             '</div>' +
-            '<div class="acts">' + act('tel', h.phone, 'Позвонить') + act('mail', h.email, 'Написать') + '</div>' +
+            '<div class="acts">' + act('cal', '1', 'График') + act('tel', h.phone, 'Позвонить') + act('mail', h.email, 'Написать') + act('qr', (me.qr || me.isAdmin) ? '1' : '', 'QR') + '</div>' +
             '<div class="bio"><small>Обо мне</small>' +
               ((h.title || h.company)
                 ? (h.title ? '<p><b>' + esc(h.title) + '</b></p>' : '') + (h.company ? '<p>' + esc(h.company) + '</p>' : '')
@@ -376,7 +416,13 @@
         var t = e.target.closest('[data-tab]');
         if (t) { tab = t.getAttribute('data-tab'); showTab(); return; }
         var c = e.target.closest('[data-c]');
-        if (c) { contact(c.getAttribute('data-c'), c.getAttribute('data-v')); return; }
+        if (c) {
+          var k = c.getAttribute('data-c');
+          if (k === 'cal') scheduleView();
+          else if (k === 'qr') qrDialog();
+          else contact(k, c.getAttribute('data-v'));
+          return;
+        }
         if (e.target.closest('#ed')) editHeader();
       };
       showTab();
@@ -581,24 +627,159 @@
       };
     }
 
+    function saveMe() { try { localStorage.setItem('me:' + API_BASE, JSON.stringify(me)); } catch(e) {} }
+
+    function qrPng(file) {
+      return createImageBitmap(file).then(function(img) {
+        var s = Math.min(1, 480 / Math.max(img.width, img.height)),
+            c = document.createElement('canvas'), x;
+        c.width = Math.round(img.width * s);
+        c.height = Math.round(img.height * s);
+        x = c.getContext('2d');
+        x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height);
+        x.drawImage(img, 0, 0, c.width, c.height);
+        return c.toDataURL('image/png').split(',')[1];
+      });
+    }
+
+    // Общие настройки (карандаш на главной): текст шапки и загрузка QR
     function editHeader() {
       var h = me.header,
           f = [['title', 'Заголовок'], ['company', 'Подпись'], ['phone', 'Телефон'], ['email', 'Почта']];
       sub('Обо мне',
         f.map(function(x) {
           return '<div class="fgrp"><label>' + x[1] + '</label><input id="f_' + x[0] + '" value="' + esc(h[x[0]]) + '"></div>';
-        }).join('') + '<button class="btn" id="ok">Сохранить</button>'
+        }).join('') +
+        '<div class="fgrp"><label>QR-код (' + (me.qr ? 'загружен' : 'не загружен') + ')</label><input type="file" id="qrf" accept="image/*"></div>' +
+        (me.qr ? '<button class="btn ghost" id="qrd">Удалить QR-код</button>' : '') +
+        '<button class="btn" id="ok">Сохранить</button>'
       );
+      if ($('qrd')) $('qrd').onclick = function() {
+        tg.showConfirm('Удалить QR-код?', function(ok) {
+          if (!ok) return;
+          api('/api/qr', {method: 'DELETE'}).then(function() { me.qr = false; qrUrl = null; saveMe(); shell(); })
+            .catch(function() { msg('Не удалось удалить'); });
+        });
+      };
       $('ok').onclick = function() {
-        var b = {};
+        var b = {}, file = $('qrf').files[0];
         f.forEach(function(x) { b[x[0]] = $('f_' + x[0]).value.trim(); });
         j('/api/header', {method: 'PUT', body: JSON.stringify(b)}).then(function(r) {
           me.header = r.header;
-          shell();
-        }).catch(function(e) {
+          if (!file) return;
+          return qrPng(file).then(function(png) {
+            return j('/api/qr', {method: 'POST', body: JSON.stringify({png: png})});
+          }).then(function() { me.qr = true; qrUrl = null; });
+        }).then(function() { saveMe(); shell(); }).catch(function(e) {
           msg(e && e.msg && /[а-яА-Я]/.test(e.msg) ? e.msg : 'Не удалось сохранить (ошибка ' + ((e && e.status) || 'сети') + ')');
         });
       };
+    }
+
+    var qrUrl = null;
+    function qrDialog() {
+      if (!me.qr) { msg(me.isAdmin ? 'QR-код не загружен. Добавьте его в настройках (карандаш на главной).' : 'QR-код пока не добавлен'); return; }
+      var p = qrUrl ? Promise.resolve(qrUrl)
+        : api('/api/qr?t=' + Date.now()).then(function(r) { return r.blob(); }).then(function(b) { return (qrUrl = URL.createObjectURL(b)); });
+      p.then(function(u) {
+        var m = document.createElement('div');
+        m.className = 'dlg';
+        m.innerHTML = '<div class="dlg-box"><div class="dlg-t">QR-код</div><img class="dlg-img" src="' + u + '" alt=""><button class="dlg-b" data-a="no">Закрыть</button></div>';
+        m.onclick = function(e) { if (e.target === m || e.target.getAttribute('data-a')) document.body.removeChild(m); };
+        document.body.appendChild(m);
+      }).catch(function() { msg('Не удалось загрузить QR-код'); });
+    }
+
+    // ---- график работы ----
+    var calY, calM, calMode = 'work',
+        KINDS = [['work', 'Рабочий', 'on'], ['sick', 'Больничный', 'sick'], ['vacation', 'Отпуск', 'vac']];
+    function pad(n) { return (n < 10 ? '0' : '') + n; }
+
+    function schedMap() {
+      var map = {};
+      (cache.schedule || []).forEach(function(e) {
+        if (typeof e === 'string') map[e] = 'work'; else map[e.d] = e.k;
+      });
+      return map;
+    }
+
+    function scheduleView() {
+      var d = new Date();
+      calY = d.getFullYear(); calM = d.getMonth();
+      sub('График работы', '<div id="cal"></div>');
+      document.querySelector('.sub-head').insertAdjacentHTML('beforeend', '<div class="stitle cnt" id="cnt"></div>');
+      $('cal').onclick = function(e) {
+        var m = e.target.closest('[data-m]');
+        if (m) {
+          calM += Number(m.getAttribute('data-m'));
+          if (calM < 0) { calM = 11; calY--; }
+          if (calM > 11) { calM = 0; calY++; }
+          drawCal();
+          return;
+        }
+        var md = e.target.closest('[data-mode]');
+        if (md) { calMode = md.getAttribute('data-mode'); drawCal(); return; }
+        var k = e.target.closest('[data-k]');
+        if (k && me.isAdmin) toggleDay(k.getAttribute('data-k'));
+      };
+      if (cache.schedule) drawCal();
+      else {
+        $('cal').innerHTML = '<div class="empty">Загрузка…</div>';
+        getData('schedule').then(drawCal).catch(function() { if ($('cal')) $('cal').innerHTML = '<div class="empty">Не удалось загрузить.</div>'; });
+      }
+    }
+
+    function drawCal() {
+      var box = $('cal');
+      if (!box) return;
+      var map = schedMap(),
+          first = new Date(calY, calM, 1),
+          off = (first.getDay() + 6) % 7,
+          n = new Date(calY, calM + 1, 0).getDate(),
+          t = new Date(),
+          tk = t.getFullYear() + '-' + pad(t.getMonth() + 1) + '-' + pad(t.getDate()),
+          cls = {work: 'on', sick: 'sick', vacation: 'vac'},
+          dot = {work: 'k-work', sick: 'k-sick', vacation: 'k-vac'},
+          html = '', i;
+      if (me.isAdmin) {
+        html += '<div class="cal-modes">' + KINDS.map(function(x) {
+          return '<button class="cal-mode' + (calMode === x[0] ? ' sel' : '') + '" data-mode="' + x[0] + '"><i class="' + dot[x[0]] + '"></i>' + x[1] + '</button>';
+        }).join('') + '</div>';
+      }
+      html += '<div class="cal-h"><button class="ib" data-m="-1" aria-label="Назад">' + ico('back') + '</button>' +
+        '<div class="cal-t">' + first.toLocaleDateString('ru-RU', {month: 'long', year: 'numeric'}) + '</div>' +
+        '<button class="ib" data-m="1" aria-label="Вперёд">' + ico('next') + '</button></div><div class="cal-g">';
+      ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].forEach(function(w) { html += '<div class="cal-w">' + w + '</div>'; });
+      for (i = 0; i < off; i++) html += '<div class="cal-d e"></div>';
+      for (i = 1; i <= n; i++) {
+        var key = calY + '-' + pad(calM + 1) + '-' + pad(i), k = map[key];
+        html += '<button class="cal-d' + (k ? ' ' + cls[k] : '') + (key === tk ? ' today' : '') + (me.isAdmin ? '' : ' ro') + '" data-k="' + key + '">' + i + '</button>';
+      }
+      html += '</div><div class="cal-leg">' + KINDS.map(function(x) {
+        return '<span><i class="' + dot[x[0]] + '"></i>' + x[1] + '</span>';
+      }).join('') + '</div>';
+      if (me.isAdmin) html += '<div class="cal-note">Выберите тип и нажимайте на дни. Повторный тап по тому же типу снимает отметку.</div>';
+      box.innerHTML = html;
+      var pre = calY + '-' + pad(calM + 1) + '-', shifts = 0, c = $('cnt'), r10, r100;
+      Object.keys(map).forEach(function(d) { if (d.indexOf(pre) === 0 && map[d] === 'work') shifts++; });
+      r10 = shifts % 10; r100 = shifts % 100;
+      if (c) c.textContent = shifts + ' ' + (r10 === 1 && r100 !== 11 ? 'смена' : (r10 >= 2 && r10 <= 4 && (r100 < 12 || r100 > 14) ? 'смены' : 'смен'));
+    }
+
+    function toggleDay(k) {
+      var prev = schedMap()[k] || null,
+          next = prev === calMode ? null : calMode,
+          list = (cache.schedule || []).map(function(e) { return typeof e === 'string' ? {d: e, k: 'work'} : e; }),
+          old = list.slice();
+      list = list.filter(function(e) { return e.d !== k; });
+      if (next) list.push({d: k, k: next});
+      cache.schedule = list;
+      drawCal();
+      j('/api/schedule', {method: 'PUT', body: JSON.stringify({date: k, kind: next})}).catch(function() {
+        cache.schedule = old;
+        drawCal();
+        msg('Не удалось сохранить');
+      });
     }
 
     function circlePng(it) {
@@ -686,6 +867,7 @@
         quiet('colleagues').then(function(items) { (items || []).forEach(function(u) { photoLoad(u.ref); }); });
         quiet('pins');
         quiet('notifications');
+        quiet('schedule');
         if (me.isAdmin) quiet('avlog');
         avatarJob();
       }
