@@ -200,7 +200,6 @@
     .cal-chips { display: flex; gap: 6px; }
     .cal-chip { flex: 1; border: 0; border-radius: 999px; padding: 9px 4px; background: var(--card); color: var(--tx); font: inherit; font-size: 13px; font-weight: 500; display: flex; align-items: center; justify-content: center; gap: 6px; opacity: .6; }
     .cal-chip.sel { opacity: 1; font-weight: 600; box-shadow: 0 3px 10px rgba(0,0,0,.14); }
-    .stitle.cnt { margin-left: auto; color: var(--hint); white-space: nowrap; }
     #cal { display: flex; flex-direction: column; gap: 14px; }
     input[type=file] { font-size: 14px; }
 
@@ -726,8 +725,9 @@
       var d = new Date();
       calY = d.getFullYear(); calM = d.getMonth();
       calSel = calY + '-' + pad(calM + 1) + '-' + pad(d.getDate());
-      sub('График', '<div id="cal"></div>');
-      document.querySelector('.sub-head').insertAdjacentHTML('beforeend', '<div class="stitle cnt" id="cnt"></div>');
+      sub('', '<div id="cal"></div>');
+      var sh = document.querySelector('.sub-head');
+      if (sh) sh.remove(); // остаётся только системная кнопка «Назад» Telegram
       $('cal').onclick = function(e) {
         var m = e.target.closest('[data-m]');
         if (m) {
@@ -786,7 +786,7 @@
           t = new Date(),
           tk = t.getFullYear() + '-' + pad(t.getMonth() + 1) + '-' + pad(t.getDate()),
           html = '', i;
-      html += '<div class="cal-h"><button class="ib" data-m="-1" aria-label="Назад">' + ico('back') + '</button>' +
+      html += '<div class="stitle">Расписание</div><div class="cal-h"><button class="ib" data-m="-1" aria-label="Назад">' + ico('back') + '</button>' +
         '<div class="cal-t">' + first.toLocaleDateString('ru-RU', {month: 'long', year: 'numeric'}) + '</div>' +
         '<button class="ib" data-m="1" aria-label="Вперёд">' + ico('next') + '</button></div><div class="cal-g">';
       ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].forEach(function(w) { html += '<div class="cal-w">' + w + '</div>'; });
@@ -799,10 +799,6 @@
         return '<span><i class="' + x[2] + '"></i>' + x[1] + '</span>';
       }).join('') + '</div>' + infoHtml(map);
       box.innerHTML = html;
-      var pre = calY + '-' + pad(calM + 1) + '-', shifts = 0, c = $('cnt'), r10, r100;
-      Object.keys(map).forEach(function(d) { if (d.indexOf(pre) === 0 && 'work' in map[d]) shifts++; });
-      r10 = shifts % 10; r100 = shifts % 100;
-      if (c) c.textContent = shifts + ' ' + (r10 === 1 && r100 !== 11 ? 'смена' : (r10 >= 2 && r10 <= 4 && (r100 < 12 || r100 > 14) ? 'смены' : 'смен'));
     }
 
     function schedErr(e) {
