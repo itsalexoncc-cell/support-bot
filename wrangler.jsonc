@@ -1,0 +1,15 @@
+
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "support-bot",
+  "main": "worker.js",
+  "compatibility_date": "2026-11-12",
+  "keep_vars": true,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "support-bot",
+      "database_id": "94293e84-9561-4598-b6d7-d95380754a91"
+    }
+  ]
+}
