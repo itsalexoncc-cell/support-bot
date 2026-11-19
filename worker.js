@@ -5,6 +5,13 @@
 // Mini App теперь лежит на GitHub Pages (файл index.html). Воркер отдаёт только API.
 // Переменная APP_URL: адрес Mini App (по умолчанию https://itsalexoncc-cell.github.io/support-bot/).
 // Доп. секрет: ADMIN_USER_ID (Telegram ID владельца; несколько аккаунтов: через запятую).
+// Необязательная переменная NOTICE_TTL_SEC: через сколько секунд исчезает уведомление «не удалено» в General (по умолчанию 6).
+//
+// УДАЛЕНИЕ СООБЩЕНИЙ: админ отвечает командой /del на сообщение в топике клиента.
+//   сообщение клиента: удаляется у клиента, в топике заменяется на «🗑 Сообщение удалено»;
+//                      если Telegram не даёт его править (пересылка, медиа): удаляется из топика, а «🗑 Сообщение удалено» на несколько секунд приходит в General;
+//   своё сообщение:    удаляется у клиента, затем в топике.
+//   не получилось (старше 48 часов и т.п.): в General приходит ответ на это сообщение, через несколько секунд он удаляется.
 //
 // АНОНИМНОСТЬ ВЛАДЕЛЬЦА:
 //   клиент -> группа: forwardMessage (в группе видна плашка «Переслано от <клиент>»);
@@ -53,6 +60,7 @@ export default {
         commands: [
           { command: 'ban', description: 'Заблокировать клиента' },
           { command: 'unban', description: 'Разблокировать клиента' },
+          { command: 'del', description: 'Удалить сообщение (ответом на него)' },
           { command: 'app', description: 'Открыть мини-приложение' },
         ],
       });
@@ -397,7 +405,7 @@ async function isAdminId(env, userId) {
 }
 
 async function onCommand(m, env, cmd, arg) {
-  const known = ['ban', 'unban', 'app'];
+  const known = ['ban', 'unban', 'app', 'del', 'delete'];
   if (!known.includes(cmd)) return false; // неизвестная команда: пересылаем как обычное сообщение
 
   const say = (text, extra = {}) =>
@@ -443,7 +451,110 @@ async function onCommand(m, env, cmd, arg) {
     return true;
   }
 
+  if (cmd === 'del' || cmd === 'delete') {
+    await onDelete(m, env);
+    return true;
+  }
+
   return false;
+}
+
+// ---------- удаление сообщений ----------
+const GENERAL_THREAD_ID = 1; // топик General в форуме
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const noticeTtl = (env) => Math.max(0, Number(env.NOTICE_TTL_SEC ?? 6)) * 1000;
+
+// Отправляет временное сообщение и через несколько секунд удаляет его
+async function flash(env, params) {
+  try {
+    const r = await tg(env, 'sendMessage', params);
+    if (!r.ok) return r;
+    await sleep(noticeTtl(env));
+    await tg(env, 'deleteMessage', { chat_id: params.chat_id, message_id: r.result.message_id });
+    return r;
+  } catch (e) {
+    console.error('flash error', e);
+  }
+}
+
+// Уведомление в General, исчезает само. С groupMsgId это ответ на сообщение из топика, без него (null) просто сообщение.
+// Если Telegram не принял ответ на сообщение из другого топика, шлём в General без привязки.
+async function generalNotice(env, groupMsgId, text) {
+  const base = { chat_id: env.GROUP_ID, text, disable_notification: true };
+  const r = await flash(env, {
+    ...base,
+    message_thread_id: GENERAL_THREAD_ID,
+    ...(groupMsgId ? { reply_parameters: { message_id: groupMsgId, allow_sending_without_reply: true } } : {}),
+  });
+  if (!r?.ok) await flash(env, base);
+}
+
+// Сообщение у клиента уже исчезло: для нас это тоже успех
+const deleteOk = (r) => r.ok || /message to delete not found/i.test(r.description || '');
+const deleteReason = (r) =>
+  /can't be deleted|too old/i.test(r.description || '') ? 'сообщение старше 48 часов' : r.description || 'ошибка';
+
+// /del ответом на сообщение в топике клиента
+async function onDelete(m, env) {
+  const tid = m.message_thread_id;
+  const target = m.reply_to_message;
+  const dropCommand = () =>
+    tg(env, 'deleteMessage', { chat_id: m.chat.id, message_id: m.message_id }).catch(() => {});
+
+  const user = tid
+    ? await env.BD.prepare('SELECT user_id FROM users WHERE topic_id = ?').bind(tid).first()
+    : null;
+  // без ответа на конкретное сообщение reply_to_message в топике указывает на его заголовок
+  if (!user || !target || target.forum_topic_created || target.message_id === tid) {
+    await flash(env, {
+      chat_id: m.chat.id,
+      message_thread_id: tid,
+      text: 'Ответьте командой /del на сообщение в топике клиента, которое нужно удалить.',
+      disable_notification: true,
+    });
+    await dropCommand();
+    return;
+  }
+  await dropCommand();
+
+  const row = await env.BD.prepare(
+    'SELECT user_msg_id AS u FROM messages WHERE user_id = ? AND group_msg_id = ?'
+  ).bind(user.user_id, target.message_id).first();
+  if (!row) {
+    await generalNotice(env, target.message_id, '⚠️ Не удалено: сообщение старше 48 часов или не относится к переписке с клиентом');
+    return;
+  }
+
+  // удаляем у клиента (и его сообщение, и копию нашего: бот может удалять и то и другое в личке)
+  const del = await tg(env, 'deleteMessage', { chat_id: user.user_id, message_id: row.u });
+  if (!deleteOk(del)) {
+    await generalNotice(env, target.message_id, '⚠️ Не удалено: ' + deleteReason(del));
+    return;
+  }
+  await env.BD.prepare('DELETE FROM messages WHERE user_id = ? AND group_msg_id = ?')
+    .bind(user.user_id, target.message_id).run().catch(() => {});
+
+  const fromClient = target.from?.is_bot && !target.sender_chat;
+  if (!fromClient) {
+    // своё сообщение: у клиента удалено, убираем и у себя в топике
+    const d = await tg(env, 'deleteMessage', { chat_id: m.chat.id, message_id: target.message_id });
+    if (!d.ok) {
+      await generalNotice(env, target.message_id, '⚠️ У клиента удалено, а в топике не получилось: ' + (d.description || 'ошибка'));
+    }
+    return;
+  }
+
+  // сообщение клиента: в топике остаётся пометка вместо содержимого
+  const text = '🗑 Сообщение удалено';
+  const e = await tg(env, 'editMessageText', { chat_id: m.chat.id, message_id: target.message_id, text });
+  if (e.ok || /not modified/i.test(e.description || '')) return;
+  // пересланное или медиа-сообщение текстом не заменить: удаляем его из топика, а «Сообщение удалено» на несколько секунд показываем в General
+  const d = await tg(env, 'deleteMessage', { chat_id: m.chat.id, message_id: target.message_id });
+  if (!d.ok) {
+    await generalNotice(env, target.message_id, '⚠️ У клиента удалено, а в топике не получилось: ' + (d.description || 'ошибка'));
+    return;
+  }
+  await generalNotice(env, null, text);
 }
 
 async function onCallback(q, env) {
