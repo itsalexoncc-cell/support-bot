@@ -5,7 +5,10 @@
 // Mini App теперь лежит на GitHub Pages (файл index.html). Воркер отдаёт только API.
 // Переменная APP_URL: адрес Mini App (по умолчанию https://itsalexoncc-cell.github.io/support-bot/).
 // Доп. секрет: ADMIN_USER_ID (Telegram ID владельца; несколько аккаунтов: через запятую).
-// Необязательная переменная NOTICE_TTL_SEC: через сколько секунд исчезает уведомление «не удалено» в General (по умолчанию 6).
+// GENERAL: сообщения бота в General временные. Уведомления исчезают через NOTICE_TTL_SEC секунд (по умолчанию 6),
+//   ответ на /app с кнопкой через NOTICE_LONG_TTL_SEC (по умолчанию 20). Команды /ban, /unban, /app, введённые в General,
+//   бот тоже убирает вместе с ответом. Все временные сообщения записываются в таблицу temp_msgs: если воркер остановят
+//   раньше времени, их дочищает cron (раз в минуту) или следующее уведомление. Что пишете вы и коллеги в General, бот не трогает.
 //
 // УДАЛЕНИЕ СООБЩЕНИЙ: админ отвечает командой /del на сообщение в топике клиента.
 //   сообщение клиента: удаляется у клиента, в топике заменяется на «🗑 Сообщение удалено»;
@@ -97,6 +100,7 @@ export default {
 
   // Cron: порционная отправка рассылок
   async scheduled(event, env, ctx) {
+    ctx.waitUntil(sweepTemp(env)); // дочищает временные сообщения, которые не успели удалиться
     ctx.waitUntil(tickBroadcast(env).catch((e) => console.error('broadcast error', e)));
   },
 };
@@ -420,21 +424,20 @@ async function onCommand(m, env, cmd, arg) {
   const known = ['ban', 'unban', 'app', 'del', 'delete'];
   if (!known.includes(cmd)) return false; // неизвестная команда: пересылаем как обычное сообщение
 
-  const say = (text, extra = {}) =>
-    tg(env, 'sendMessage', {
-      chat_id: m.chat.id,
-      message_thread_id: m.message_thread_id,
-      text,
-      parse_mode: 'HTML',
-      ...extra,
-    });
+  // В топике ответ остаётся. В General ничего не копится: команда убирается сразу, ответ через несколько секунд
+  const say = async (text, extra = {}, long = false) => {
+    const params = { chat_id: m.chat.id, message_thread_id: m.message_thread_id, text, parse_mode: 'HTML', ...extra };
+    if (m.message_thread_id) return tg(env, 'sendMessage', params);
+    await tg(env, 'deleteMessage', { chat_id: m.chat.id, message_id: m.message_id }).catch(() => {});
+    return flash(env, params, noticeSec(env, long));
+  };
 
   // /app в группе: кнопка-ссылка (inline web_app работает только в личке; ссылка на Mini App из BotFather /newapp, short name в APP_SHORT, по умолчанию groouppi)
   if (cmd === 'app') {
     const uname = await botUsername(env);
     await say('Мини-приложение:', {
       reply_markup: { inline_keyboard: [[{ text: 'Открыть', url: `https://t.me/${uname}/${env.APP_SHORT || 'groouppi'}?mode=compact` }]] },
-    });
+    }, true);
     return true;
   }
 
@@ -474,15 +477,48 @@ async function onCommand(m, env, cmd, arg) {
 // ---------- удаление сообщений ----------
 const GENERAL_THREAD_ID = 1; // топик General в форуме
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const noticeTtl = (env) => Math.max(0, Number(env.NOTICE_TTL_SEC ?? 6)) * 1000;
+// Сколько секунд живёт временное сообщение (long: ответ с кнопкой, которую нужно успеть нажать)
+const noticeSec = (env, long = false) =>
+  Math.max(0, Number(long ? env.NOTICE_LONG_TTL_SEC ?? 20 : env.NOTICE_TTL_SEC ?? 6));
+
+// Временные сообщения записываются в базу: если воркер остановят до удаления, их дочистит cron или следующее уведомление
+let tempReady;
+const ensureTemp = (env) =>
+  (tempReady ||= env.BD.prepare(
+    'CREATE TABLE IF NOT EXISTS temp_msgs (chat_id TEXT NOT NULL, message_id INTEGER NOT NULL, delete_at INTEGER NOT NULL, PRIMARY KEY (chat_id, message_id))'
+  ).run().catch(() => {}));
+
+// Удаляет временные сообщения, которые не успели удалиться сами (запас в 30 секунд, чтобы не задеть живые)
+async function sweepTemp(env, limit = 5) {
+  try {
+    await ensureTemp(env);
+    const { results } = await env.BD.prepare('SELECT chat_id, message_id FROM temp_msgs WHERE delete_at < ? LIMIT ?')
+      .bind(now(), limit).all();
+    for (const t of results || []) {
+      const d = await tg(env, 'deleteMessage', { chat_id: t.chat_id, message_id: t.message_id });
+      if (d.error_code === 429) break; // Telegram просит подождать, повторим в следующий раз
+      await env.BD.prepare('DELETE FROM temp_msgs WHERE chat_id = ? AND message_id = ?').bind(t.chat_id, t.message_id).run();
+    }
+  } catch (e) {
+    console.error('sweep error', e);
+  }
+}
 
 // Отправляет временное сообщение и через несколько секунд удаляет его
-async function flash(env, params) {
+async function flash(env, params, seconds = noticeSec(env)) {
   try {
+    await sweepTemp(env);
     const r = await tg(env, 'sendMessage', params);
     if (!r.ok) return r;
-    await sleep(noticeTtl(env));
-    await tg(env, 'deleteMessage', { chat_id: params.chat_id, message_id: r.result.message_id });
+    const chat = String(params.chat_id);
+    const id = r.result.message_id;
+    await env.BD.prepare('INSERT OR REPLACE INTO temp_msgs (chat_id, message_id, delete_at) VALUES (?, ?, ?)')
+      .bind(chat, id, now() + Math.ceil(seconds) + 30).run().catch(() => {});
+    await sleep(seconds * 1000);
+    const d = await tg(env, 'deleteMessage', { chat_id: params.chat_id, message_id: id });
+    if (d.ok || /not found/i.test(d.description || '')) {
+      await env.BD.prepare('DELETE FROM temp_msgs WHERE chat_id = ? AND message_id = ?').bind(chat, id).run().catch(() => {});
+    }
     return r;
   } catch (e) {
     console.error('flash error', e);
@@ -714,7 +750,8 @@ async function ensureSchema(env) {
   await run('avatar_log', 'CREATE TABLE IF NOT EXISTS avatar_log (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, emoji_id TEXT, created_at INTEGER)');
   await run('avatars', 'CREATE TABLE IF NOT EXISTS avatars (user_id INTEGER PRIMARY KEY, file_unique_id TEXT, emoji_id TEXT, checked_at INTEGER, pending INTEGER DEFAULT 0)');
   await run('pins', 'CREATE TABLE IF NOT EXISTS pins (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, group_msg_id INTEGER, text TEXT NOT NULL, created_at INTEGER)');
-  await run('schedule_v2', 'CREATE TABLE IF NOT EXISTS schedule_v2 (day TEXT NOT NULL, kind TEXT NOT NULL, note TEXT, PRIMARY KEY (day, kind))');
+  await run('temp_msgs', 'CREATE TABLE IF NOT EXISTS temp_msgs (chat_id TEXT NOT NULL, message_id INTEGER NOT NULL, delete_at INTEGER NOT NULL, PRIMARY KEY (chat_id, message_id))');
+  await run('schedule_v2','CREATE TABLE IF NOT EXISTS schedule_v2 (day TEXT NOT NULL, kind TEXT NOT NULL, note TEXT, PRIMARY KEY (day, kind))');
   return out;
 }
 
