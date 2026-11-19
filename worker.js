@@ -12,6 +12,8 @@
 //                      если Telegram не даёт его править (пересылка, медиа): удаляется из топика, а «🗑 Сообщение удалено» на несколько секунд приходит в General;
 //   своё сообщение:    удаляется у клиента, затем в топике.
 //   не получилось (старше 48 часов и т.п.): в General приходит ответ на это сообщение, через несколько секунд он удаляется.
+// ПРАВКИ: если вы правите своё сообщение, а связи с копией у клиента уже нет (старше 3 суток), в General так же приходит
+//   предупреждение на несколько секунд.
 //
 // АНОНИМНОСТЬ ВЛАДЕЛЬЦА:
 //   клиент -> группа: forwardMessage (в группе видна плашка «Переслано от <клиент>»);
@@ -358,7 +360,17 @@ async function onEdit(m, env) {
     const row = await env.BD.prepare(
       'SELECT user_id, user_msg_id FROM messages WHERE group_msg_id = ?'
     ).bind(m.message_id).first();
-    if (!row) return;
+    if (!row) {
+      // Связи с сообщением у клиента нет (старше 3 суток или не доставлялось): предупреждаем в General на несколько секунд.
+      // Заметки «//», General и чужие топики не трогаем: их клиенту и не отправляли.
+      const tid = m.message_thread_id;
+      if (!tid || (m.text || m.caption || '').startsWith('//')) return;
+      const topic = await env.BD.prepare('SELECT user_id FROM users WHERE topic_id = ?').bind(tid).first();
+      if (topic) {
+        await generalNotice(env, m.message_id, '⚠️ Правка не передана клиенту: сообщение не связано с перепиской (возможно, старше 3 суток)');
+      }
+      return;
+    }
     const r = await mirrorEdit(env, m, row.user_id, row.user_msg_id);
     if (!r.ok && !/not modified/i.test(r.description || '') && m.message_thread_id) {
       await tg(env, 'sendMessage', {
