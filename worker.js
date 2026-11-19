@@ -1,5 +1,5 @@
 // Cloudflare Worker: бот обратной связи (замена Livegram)
-// D1-привязка: BD. Секреты: BOT_TOKEN, GROUP_ID, WEBHOOK_SECRET.
+// D1-привязка: BD. Секреты: BOT_TOKEN, GROUP_ID, WEBHOOK_SECRET
 // Необязательные переменные: WELCOME, AUTOREPLY, TZ_OFFSET (часы от UTC, по умолчанию 3 = Москва).
 // Для рассылок нужен Cron Trigger "* * * * *".
 // Mini App теперь лежит на GitHub Pages (файл index.html). Воркер отдаёт только API.
