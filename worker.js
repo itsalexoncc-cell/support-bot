@@ -880,6 +880,38 @@ async function listPins(env, viewerId, isAdm) {
   return results.map((r) => ({ id: r.id, text: r.text }));
 }
 
+// Данные для /api/me и /api/bootstrap (одни и те же, чтобы ответы не расходились)
+async function loadMe(env, isAdmin) {
+  const [qr, header, bot] = await Promise.all([
+    DB(env).prepare("SELECT 1 AS x FROM settings WHERE key = 'qr_png'").first(),
+    getHeader(env),
+    botName(env),
+  ]);
+  return { isAdmin, header, bot, qr: !!qr };
+}
+
+async function loadSchedule(env) {
+  const { results } = await DB(env).prepare('SELECT day, kind, note FROM schedule_v2 ORDER BY day').all();
+  return results.map((r) => ({ d: r.day, k: r.kind, n: r.note || '' }));
+}
+
+// Журнал новых аватарок (виден только админам, проверка прав — у вызывающего)
+async function loadAvatarLog(env) {
+  const { results } = await DB(env).prepare(
+    `SELECT l.id, l.user_id, l.created_at,
+            (a.emoji_id = l.emoji_id AND COALESCE(a.pending, 0) = 0) AS actual,
+            u.first_name, u.last_name, u.name, u.custom_name
+       FROM avatar_log l
+       LEFT JOIN users u ON u.user_id = l.user_id
+       LEFT JOIN avatars a ON a.user_id = l.user_id
+      ORDER BY l.id DESC LIMIT 50`
+  ).all();
+  return Promise.all(results.map(async (r) => {
+    const nm = userLabel(r);
+    return { id: r.id, ref: await refFor(r.user_id, env), name: nm, initial: nm.charAt(0).toUpperCase(), at: r.created_at, actual: !!r.actual };
+  }));
+}
+
 async function photoResponse(env, userId) {
   const api = `https://api.telegram.org/bot${env.BOT_TOKEN}`;
   const photos = await (await fetch(`${api}/getUserProfilePhotos?user_id=${userId}&limit=1`)).json();
@@ -923,8 +955,21 @@ async function handleApi(request, env) {
 
   try {
     if (path === '/api/me' && request.method === 'GET') {
-      const hasQr = !!(await DB(env).prepare("SELECT 1 AS x FROM settings WHERE key = 'qr_png'").first());
-      return json({ isAdmin, header: await getHeader(env), bot: await botName(env), qr: hasQr });
+      return json(await loadMe(env, isAdmin));
+    }
+
+    // Всё для запуска мини-аппа одним запросом: шапка, коллеги, закрепы, уведомления, график
+    // и (только админам) журнал аватарок. Раньше приложение слало их отдельными запросами.
+    if (path === '/api/bootstrap' && request.method === 'GET') {
+      const [meData, colleagues, pins, notifications, schedule, avlog] = await Promise.all([
+        loadMe(env, isAdmin),
+        listColleagues(env, me),
+        listPins(env, me, isAdmin),
+        getContent(env, 'notifications'),
+        loadSchedule(env),
+        isAdmin ? loadAvatarLog(env) : Promise.resolve(null),
+      ]);
+      return json({ me: meData, colleagues, pins, notifications, schedule, ...(isAdmin ? { avlog } : {}) });
     }
 
     if (path === '/api/colleagues' && request.method === 'GET') {
@@ -935,8 +980,7 @@ async function handleApi(request, env) {
     // На один день можно отметить работу и «занят» одновременно; отпуск исключает остальное.
     if (path === '/api/schedule') {
       if (request.method === 'GET') {
-        const { results } = await DB(env).prepare('SELECT day, kind, note FROM schedule_v2 ORDER BY day').all();
-        return json({ items: results.map((r) => ({ d: r.day, k: r.kind, n: r.note || '' })) });
+        return json({ items: await loadSchedule(env) });
       }
       if (request.method === 'PUT') {
         if (!isAdmin) return json({ error: 'forbidden' }, 403);
@@ -1036,19 +1080,7 @@ async function handleApi(request, env) {
     // Журнал новых аватарок: виден только админам (показывается в «Уведомлениях»)
     if (path === '/api/avatars/log' && request.method === 'GET') {
       if (!isAdmin) return json({ error: 'forbidden' }, 403);
-      const { results } = await DB(env).prepare(
-        `SELECT l.id, l.user_id, l.created_at,
-                (a.emoji_id = l.emoji_id AND COALESCE(a.pending, 0) = 0) AS actual,
-                u.first_name, u.last_name, u.name, u.custom_name
-           FROM avatar_log l
-           LEFT JOIN users u ON u.user_id = l.user_id
-           LEFT JOIN avatars a ON a.user_id = l.user_id
-          ORDER BY l.id DESC LIMIT 50`
-      ).all();
-      return json({ items: await Promise.all(results.map(async (r) => {
-        const nm = userLabel(r);
-        return { id: r.id, ref: await refFor(r.user_id, env), name: nm, initial: nm.charAt(0).toUpperCase(), at: r.created_at, actual: !!r.actual };
-      })) });
+      return json({ items: await loadAvatarLog(env) });
     }
 
     if (path === '/api/avatars/log' && request.method === 'DELETE') {
